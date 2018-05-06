@@ -14,87 +14,99 @@
 #
 #
 import os
+import datetime
 
 import numpy as np
+
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 
-
 import astropy.units as u
+
 import sunpy.map
 from sunpy.instr.aia import aiaprep
-
-
 from sunpy.net import Fido, attrs as a
+from sunpy.time import parse_time
 
-#time_start = '2012/03/01 03:30:00'
-#time_end = time_start + 12 seconds
-#time_string =
+# Where the data is stored
+data_root = os.path.expanduser('~/Data/solarclustering/demo/')
 
+# String formatting for time
+string_format_time = "%Y%m%d_%H%M%S"
 
-root = os.path.expanduser('~/Data/solarclustering/demo1/')
-directory1 = os.path.join(root, '1.0')
-directory15 = os.path.join(root, '1.5')
-if not os.path.exists(directory1):
-    os.makedirs(directory1)
-if not os.path.exists(directory15):
-    os.makedirs(directory15)
+# Start times
+start_times = ('2012/03/04 12:34:00', '2012/03/01 03:30:00')
 
-#time_range = a.Time('2012/03/04 12:34:00', '2012/03/04 12:34:12')
-#time_range = a.Time('2012/03/01 03:30:00', '2012/03/01 03:30:12')
-
+# Wavelengths to look at
 wavelengths = (94, 131, 171, 193, 211, 335, 304, 1600, 1700)
 
-np.random.seed(42)
+# Search time range around the start time
+search_time_range = 24 * u.s
+
+# Spatial summing
 spatial_sum = (2, 2) * u.pix
 
+# Storage for all the filepaths
+all_files = dict()
 
-directories = {}
-for level in ('1.0', '1.5'):
-    directories[level] = []
-
-    
-    save_directory = os.path.join(directory, level)
-    directories[level]
-    if not os.path.exists(save_directory):
-        os.makedirs(save_directory)
-
-directories = {}
+# Get all the data
 for start_time in start_times:
-    end_time = time_start + 24 seconds
+    #
+    all_files[start_time] = dict()
 
-    time_range = a.Time(start_time, end_time)
+    # Get the start time for the search
+    st = parse_time(start_time)
 
+    # Get the end time for the search
+    et = st + datetime.timedelta(seconds=search_time_range.to(u.s).value)
+
+    # Create the search time range
+    time_range = a.Time(st, et)
+
+    # Create a string that will be used to name the subdirectory
+    start_time_string = st.strftime(string_format_time)
+
+    # Create the subdirectory of the data root
+    sub_data_root = os.path.join(data_root, start_time_string)
+
+    # Create and store Level 1.0 and 1.5 subdirectories
+    level_sub_dirs = {}
+    for level in ('1.0', '1.5'):
+        all_files[start_time][level] = []
+        level_sub_dir = os.path.join(sub_data_root, level)
+        level_sub_dirs[level] = level_sub_dir
+        if not os.path.exists(level_sub_dir):
+            os.makedirs(level_sub_dir)
 
     # Download all data
+    lsd = level_sub_dirs["1.0"]
     for wavelength in wavelengths:
+        # Search for the files at this wavelength
         result = Fido.search(time_range, a.Instrument('aia'), a.Wavelength(wavelength*u.AA))
-        downloaded_file = Fido.fetch(result[0, 0], path=os.path.join(save_directory, '{file}.fits'))
 
+        # Download the first file found
+        downloaded_file = Fido.fetch(result[0, 0], path=os.path.join(lsd, '{file}.fits'))
 
-all_filesets = []
-for directory in directories:
-    fp15 = [os.path.join(directory, f) for f in os.listdir(directory) if f.endswith('.fits')]
-    all_filesets.append(fp15)
+        # Store this set of filepaths
+        all_files[start_time]["1.0"].append(downloaded_file[0])
 
-#
-# Define where the 1.0 files are
-#
-#filepaths = sorted([os.path.join(directory1, f) for f in os.listdir(directory1) if f.endswith('.fits')])
+    # Promote to Level 1.5
+    filepaths = [os.path.join(lsd, f) for f in os.listdir(lsd) if f.endswith('.fits')]
+    for fp in filepaths:
+        # Get the filename out of filepath
+        dummy, filename = os.path.split(fp)
 
-#
-# Convert using aiaprep
-#
-#filepaths15 = []
-#for fp in filepaths:
-#    smap = sunpy.map.Map(fp)
-#    promoted = aiaprep(smap)
-#    dummy, filename = os.path.split(fp)
-#    filepath15 = os.path.join(directory15, "{:s}{:s}".format(filename, '.1.5.fits'))
-#    promoted.save(filepath15)
-#    filepaths15.append(filepath15)
+        # Filepath for the Level 1.5 data
+        fp15 = os.path.join(level_sub_dirs["1.5"], "{:s}{:s}".format(filename, '.1.5.fits'))
 
+        # Promote to Level 1.5
+        promoted = aiaprep(sunpy.map.Map(fp))
 
+        # Save the Level 1.5 file
+        promoted.save(fp15)
+
+        # Store this set of filepaths
+        all_files[start_time]["1.5"].append(fp15)
 
 # Number of filesets
 n_fileset = len(all_filesets)
@@ -166,10 +178,9 @@ def transform_then_normalize(d, transform=np.log, center=np.mean, width=np.std):
     """
     dt = transform(d)
     dcenter = center(dt)
-    #center = np.ma.median(ld)
     dwidth = width(dt)
-    #width = np.ma.median(np.abs(ld - np.ma.median(ld)))
     return (dt - dcenter)/dwidth
+
 
 #
 # Plot two-dimensional distributions of the normalized
